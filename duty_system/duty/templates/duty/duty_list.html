@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="mb-3">
+        <a href="{% url 'duty_calendar' %}" class="btn btn-primary">查看月历视图</a>
+    </div>
+
+    <h2>值班安排</h2>
+    
+    {% if schedules %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>值班人员</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for schedule in schedules %}
+                    <tr>
+                        <td>{{ schedule.date|date:"Y-m-d" }}</td>
+                        <td>{{ schedule.staff.user.username }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <a href="{% url 'export_schedule' %}" class="btn btn-primary">导出排班表</a>
+    {% else %}
+        <p>当前月份没有排班数据</p>
+    {% endif %}
+{% endblock %} 

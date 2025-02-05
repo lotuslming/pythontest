@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">值班顺序管理</h2>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row">
+        <!-- 当前值班顺序 -->
+        <div class="col-md-6">
+            <h3>当前值班顺序</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>顺序</th>
+                        <th>姓名</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in duty_orders %}
+                    <tr>
+                        <td>{{ order.order }}</td>
+                        <td>{{ order.staff.user.username }}</td>
+                        <td>
+                            <form method="post" style="display: inline;">
+                                {% csrf_token %}
+                                <input type="hidden" name="user_id" value="{{ order.staff.user.id }}">
+                                <input type="hidden" name="action" value="remove">
+                                <button type="submit" class="btn btn-danger btn-sm">移除</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 可添加的用户 -->
+        <div class="col-md-6">
+            <h3>可添加用户</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>姓名</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in available_users %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>
+                            <form method="post">
+                                {% csrf_token %}
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <input type="hidden" name="action" value="add">
+                                <button type="submit" class="btn btn-primary btn-sm">添加到值班顺序</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 已停用的值班人员 -->
+        {% if inactive_orders %}
+        <div class="col-md-12 mt-4">
+            <h3>已停用的值班人员</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>姓名</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in inactive_orders %}
+                    <tr>
+                        <td>{{ order.staff.user.username }}</td>
+                        <td>
+                            <form method="post">
+                                {% csrf_token %}
+                                <input type="hidden" name="user_id" value="{{ order.staff.user.id }}">
+                                <input type="hidden" name="action" value="reactivate">
+                                <button type="submit" class="btn btn-success btn-sm">重新启用</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 生成月度值班表 -->
+    <div class="mt-4">
+        <h3>生成月度值班表</h3>
+        <form method="post" action="{% url 'regenerate_schedule' %}" class="row g-3">
+            {% csrf_token %}
+            <div class="col-auto">
+                <input type="number" name="year" class="form-control" value="{{ current_date.year }}" required>
+            </div>
+            <div class="col-auto">
+                <input type="number" name="month" class="form-control" min="1" max="12" value="{{ current_date.month }}" required>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">生成值班表</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %} 

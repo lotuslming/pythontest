@@ -1,0 +1,273 @@
+{% extends 'base.html' %}
+{% load duty_tags %}
+
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">{{ current_date|date:"Y年m月" }}值班表</h2>
+    
+    {% if pending_swaps %}
+    <div class="container mb-3">
+        <div class="alert alert-info">
+            <h5>待处理的换班申请</h5>
+            {% for swap in pending_swaps %}
+            <div class="swap-request mb-2">
+                <p class="mb-1">
+                    {{ swap.requester.user.username }} 请求将 
+                    {{ swap.requester_duty.date|date:"Y年m月d日" }} 的值班
+                    与您 {{ swap.target_duty.date|date:"Y年m月d日" }} 的值班交换
+                </p>
+                <form method="post" action="{% url 'handle_swap_request' swap.id %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="accept">
+                    <button type="submit" class="btn btn-success btn-sm">接受</button>
+                </form>
+                <form method="post" action="{% url 'handle_swap_request' swap.id %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="reject">
+                    <button type="submit" class="btn btn-danger btn-sm">拒绝</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="mb-3">
+        <form method="post" action="{% url 'export_schedule' %}" class="d-inline-flex align-items-center gap-2">
+            {% csrf_token %}
+            <input type="number" name="year" class="form-control form-control-sm" style="width: 100px;" value="{{ current_date.year }}" required>
+            <input type="number" name="month" class="form-control form-control-sm" style="width: 80px;" min="1" max="12" value="{{ current_date.month }}" required>
+            <button type="submit" class="btn btn-primary">导出排班表</button>
+        </form>
+        {% if is_admin %}
+        <button class="btn btn-success ms-2" onclick="regenerateSchedule()">重新排班</button>
+        {% endif %}
+    </div>
+
+    <div class="mb-3">
+        <span class="badge bg-info me-2">工作日值班</span>
+        <span class="badge bg-warning me-2">节假日值班</span>
+        <span class="text-dark me-2">● 工作日</span>
+        <span class="text-danger">● 休息日</span>
+        {% if is_admin %}
+        <span class="text-muted">（点击日期可切换工作日/休息日状态）</span>
+        {% endif %}
+    </div>
+
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>周一</th>
+                <th>周二</th>
+                <th>周三</th>
+                <th>周四</th>
+                <th>周五</th>
+                <th class="weekend">周六</th>
+                <th class="weekend">周日</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for week in calendar %}
+            <tr>
+                {% for day in week %}
+                    {% if day != 0 %}
+                        <td {% if schedule_dict|get_item:day|is_holiday %}class="holiday"{% endif %}
+                            {% if is_admin %}
+                            data-day="{{ day }}"
+                            onclick="toggleHoliday(this)"
+                            style="cursor: pointer;"
+                            {% endif %}
+                        >
+                            <div class="date {% if schedule_dict|get_item:day|is_holiday %}holiday-date{% endif %}">
+                                {{ day }}
+                            </div>
+                            {% if day in schedule_dict %}
+                                <div class="duty-staff {% if schedule_dict|get_item:day|is_holiday %}holiday-duty{% endif %}">
+                                    {{ schedule_dict|get_item:day|get_username }}
+                                    {% if user.is_authenticated and schedule_dict|get_item:day|is_user_duty:user %}
+                                        {% with duty_date=current_date.year|stringformat:"d"|add:"-"|add:current_date.month|stringformat:"02d"|add:"-"|add:day|stringformat:"02d" %}
+                                            {% if duty_date >= today|date:"Y-m-d" %}
+                                                <button class="btn btn-sm btn-outline-primary mt-1" 
+                                                        onclick="showSwapModal('{{ day }}', '{{ schedule_dict|get_item:day|get_username }}')">
+                                                    申请换班
+                                                </button>
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </td>
+                    {% else %}
+                        <td></td>
+                    {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<style>
+.date {
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: #000;
+    transition: color 0.3s;
+}
+.holiday-date {
+    color: #dc3545;
+}
+.duty-staff {
+    color: #0dcaf0;
+    font-size: 0.9em;
+}
+.holiday-duty {
+    color: #ffc107;
+}
+td {
+    height: 80px;
+    width: 14.28%;
+    vertical-align: top !important;
+    padding: 10px !important;
+}
+.holiday {
+    background-color: rgba(255, 193, 7, 0.1);
+}
+th.weekend {
+    color: #dc3545;
+}
+</style>
+
+<!-- 添加换班模态框 -->
+<div class="modal fade" id="swapModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">申请换班</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>您的值班日期：<span id="currentDutyDate"></span></p>
+                <form id="swapForm" method="post" action="{% url 'request_swap' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="requester_duty_date" id="requesterDutyDate">
+                    <div class="mb-3">
+                        <label class="form-label">选择换班对象和日期</label>
+                        <select name="target_duty_id" class="form-select" required>
+                            <option value="">请选择...</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitSwapRequest()">提交申请</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let swapModal;
+document.addEventListener('DOMContentLoaded', function() {
+    swapModal = new bootstrap.Modal(document.getElementById('swapModal'));
+});
+
+function showSwapModal(day, currentDuty) {
+    const date = new Date({{ current_date.year }}, {{ current_date.month }} - 1, day);
+    const dateStr = date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    document.getElementById('currentDutyDate').textContent = dateStr;
+    document.getElementById('requesterDutyDate').value = `{{ current_date.year }}-{{ current_date.month }}-${day}`;
+    
+    // 获取可换班的值班安排
+    fetch(`{% url 'get_available_swaps' %}?date={{ current_date.year }}-{{ current_date.month }}-${day}`)
+        .then(response => response.json())
+        .then(data => {
+            const select = document.querySelector('#swapForm select');
+            select.innerHTML = '<option value="">请选择...</option>';
+            
+            data.forEach(duty => {
+                const option = document.createElement('option');
+                option.value = duty.id;
+                option.textContent = `${duty.staff_name} (${duty.date})`;
+                select.appendChild(option);
+            });
+        });
+    
+    swapModal.show();
+}
+
+function submitSwapRequest() {
+    const form = document.getElementById('swapForm');
+    if (form.checkValidity()) {
+        form.submit();
+    } else {
+        alert('请选择换班对象和日期');
+    }
+}
+
+function toggleHoliday(cell) {
+    const day = cell.dataset.day;
+    const isHoliday = cell.classList.contains('holiday');
+    const dateDiv = cell.querySelector('.date');
+    
+    fetch('{% url "toggle_holiday" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: `year={{ current_date.year }}&month={{ current_date.month }}&day=${day}&is_holiday=${!isHoliday}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            cell.classList.toggle('holiday');
+            dateDiv.classList.toggle('holiday-date');
+            
+            const dutyStaffDiv = cell.querySelector('.duty-staff');
+            if (dutyStaffDiv) {
+                dutyStaffDiv.classList.toggle('holiday-duty');
+            }
+        } else {
+            alert('操作失败：' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('操作失败：' + error);
+    });
+}
+
+function regenerateSchedule() {
+    if (!confirm('确定要重新生成本月排班表吗？这将清除当前的排班安排。')) {
+        return;
+    }
+    
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{% url "regenerate_schedule" %}';
+    
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    
+    const yearInput = document.createElement('input');
+    yearInput.type = 'hidden';
+    yearInput.name = 'year';
+    yearInput.value = '{{ current_date.year }}';
+    form.appendChild(yearInput);
+    
+    const monthInput = document.createElement('input');
+    monthInput.type = 'hidden';
+    monthInput.name = 'month';
+    monthInput.value = '{{ current_date.month }}';
+    form.appendChild(monthInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+{% endblock %} 
